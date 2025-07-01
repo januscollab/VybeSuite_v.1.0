@@ -2,7 +2,7 @@
 // Replace src/components/admin/UserFormModal.tsx with this code
 
 import React, { useState, useEffect } from 'react';
-import { X, User, Mail, Lock, Shield } from 'lucide-react';
+import { X, User, Mail, Lock, Shield, Eye, EyeOff } from 'lucide-react';
 import { supabase, getAdminClient, isAdminEnabled } from '../../lib/supabase';
 import { PulsingDotsLoader } from '../LoadingSpinner';
 
@@ -37,10 +37,13 @@ export const UserFormModal: React.FC<UserFormModalProps> = ({
     lastName: '',
     email: '',
     role: 'user',
-    password: ''
+    password: '',
+    confirmPassword: ''
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const isEditMode = !!user;
 
@@ -52,7 +55,8 @@ export const UserFormModal: React.FC<UserFormModalProps> = ({
           lastName: user.user_metadata.last_name || '',
           email: user.email,
           role: user.role,
-          password: ''
+          password: '',
+          confirmPassword: ''
         });
       } else {
         setFormData({
@@ -60,7 +64,8 @@ export const UserFormModal: React.FC<UserFormModalProps> = ({
           lastName: '',
           email: '',
           role: 'user',
-          password: ''
+          password: '',
+          confirmPassword: ''
         });
       }
       setError(null);
@@ -77,17 +82,35 @@ export const UserFormModal: React.FC<UserFormModalProps> = ({
         throw new Error('Admin operations require service role key configuration');
       }
 
+      // Validate password fields if provided
+      if (formData.password || formData.confirmPassword) {
+        if (formData.password !== formData.confirmPassword) {
+          throw new Error('Passwords do not match');
+        }
+        if (formData.password.length < 6) {
+          throw new Error('Password must be at least 6 characters long');
+        }
+      }
+
       const adminClient = getAdminClient();
 
       if (isEditMode && user) {
-        // Update existing user
-        const { error: updateError } = await adminClient.auth.admin.updateUserById(user.id, {
+        // Prepare update data
+        const updateData: any = {
           email: formData.email,
           user_metadata: {
             first_name: formData.firstName,
             last_name: formData.lastName
           }
-        });
+        };
+
+        // Add password to update if provided
+        if (formData.password.trim()) {
+          updateData.password = formData.password;
+        }
+
+        // Update existing user
+        const { error: updateError } = await adminClient.auth.admin.updateUserById(user.id, updateData);
 
         if (updateError) throw updateError;
 
@@ -105,6 +128,10 @@ export const UserFormModal: React.FC<UserFormModalProps> = ({
         // Create new user
         if (!formData.password) {
           throw new Error('Password is required for new users');
+        }
+
+        if (formData.password !== formData.confirmPassword) {
+          throw new Error('Passwords do not match');
         }
 
         const { data: newUser, error: createError } = await adminClient.auth.admin.createUser({
@@ -258,26 +285,69 @@ export const UserFormModal: React.FC<UserFormModalProps> = ({
           </div>
 
           {/* Password (only for new users) */}
-          {!isEditMode && (
+          {(!isEditMode || formData.password || formData.confirmPassword) && (
             <div>
               <label className="block text-sm font-medium text-text-primary mb-2">
-                Password *
+                {isEditMode ? 'New Password (leave blank to keep current)' : 'Password *'}
               </label>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-text-quaternary" />
                 <input
                   type="password"
-                  required
+                  type={showPassword ? 'text' : 'password'}
+                  required={!isEditMode}
                   value={formData.password}
                   onChange={(e) => handleInputChange('password', e.target.value)}
-                  className="w-full pl-10 pr-3 py-2 border border-border-default rounded-lg bg-bg-primary text-text-primary placeholder-text-placeholder focus:outline-none focus:border-devsuite-primary focus:ring-2 focus:ring-devsuite-primary/20 transition-all"
-                  placeholder="Enter secure password"
+                  className="w-full pl-10 pr-12 py-2 border border-border-default rounded-lg bg-bg-primary text-text-primary placeholder-text-placeholder focus:outline-none focus:border-devsuite-primary focus:ring-2 focus:ring-devsuite-primary/20 transition-all"
+                  placeholder={isEditMode ? "Enter new password (optional)" : "Enter secure password"}
                   minLength={6}
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-text-quaternary hover:text-text-tertiary transition-colors"
+                  disabled={loading}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
               </div>
               <p className="text-xs text-text-tertiary mt-1">
-                Password must be at least 6 characters long
+                {isEditMode 
+                  ? 'Leave blank to keep the current password. Must be at least 6 characters if changing.'
+                  : 'Password must be at least 6 characters long'
+                }
               </p>
+            </div>
+          )}
+
+          {/* Confirm Password */}
+          {(formData.password || (!isEditMode)) && (
+            <div>
+              <label className="block text-sm font-medium text-text-primary mb-2">
+                Confirm Password {!isEditMode && '*'}
+              </label>
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-text-quaternary" />
+                <input
+                  type={showConfirmPassword ? 'text' : 'password'}
+                  required={!isEditMode || !!formData.password}
+                  value={formData.confirmPassword}
+                  onChange={(e) => handleInputChange('confirmPassword', e.target.value)}
+                  className="w-full pl-10 pr-12 py-2 border border-border-default rounded-lg bg-bg-primary text-text-primary placeholder-text-placeholder focus:outline-none focus:border-devsuite-primary focus:ring-2 focus:ring-devsuite-primary/20 transition-all"
+                  placeholder="Confirm password"
+                  minLength={6}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-text-quaternary hover:text-text-tertiary transition-colors"
+                  disabled={loading}
+                  aria-label={showConfirmPassword ? 'Hide confirm password' : 'Show confirm password'}
+                >
+                  {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
             </div>
           )}
         </form>

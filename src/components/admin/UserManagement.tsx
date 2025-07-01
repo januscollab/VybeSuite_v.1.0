@@ -2,7 +2,7 @@
 // Replace src/components/admin/UserManagement.tsx with this code
 
 import React, { useState, useEffect } from 'react';
-import { Search, Plus, MoreVertical, Trash2, Edit, UserX, UserCheck, Mail } from 'lucide-react';
+import { Search, Plus, MoreVertical, Trash2, Edit, UserX, UserCheck, Lock } from 'lucide-react';
 import { supabase, getAdminClient, isAdminEnabled } from '../../lib/supabase';
 import { PulsingDotsLoader } from '../LoadingSpinner';
 import { UserDeleteModal } from './UserDeleteModal';
@@ -155,28 +155,38 @@ export const UserManagement: React.FC = () => {
     setActionLoading(prev => ({ ...prev, [actionId]: true }));
 
     try {
-      if (isAdminEnabled()) {
-        // Use admin API for password reset
-        const adminClient = getAdminClient();
-        const { error } = await adminClient.auth.admin.generateLink({
-          type: 'recovery',
-          email: user.email
-        });
-
-        if (error) throw error;
-      } else {
-        // Fallback to regular password reset
-        const { error } = await supabase.auth.resetPasswordForEmail(user.email, {
-          redirectTo: `${window.location.origin}/auth/reset-password`
-        });
-
-        if (error) throw error;
+      // Prompt for new password
+      const newPassword = prompt(`Enter new password for ${user.email}:`);
+      if (!newPassword) return;
+      
+      if (newPassword.length < 6) {
+        alert('Password must be at least 6 characters long');
+        return;
+      }
+      
+      const confirmPassword = prompt('Confirm new password:');
+      if (newPassword !== confirmPassword) {
+        alert('Passwords do not match');
+        return;
       }
 
-      alert(`Password reset email sent to ${user.email}`);
+      if (!isAdminEnabled()) {
+        alert('Admin operations require service role key configuration');
+        return;
+      }
+
+      // Use admin API to update password directly
+      const adminClient = getAdminClient();
+      const { error } = await adminClient.auth.admin.updateUserById(user.id, {
+        password: newPassword
+      });
+
+      if (error) throw error;
+
+      alert(`Password updated successfully for ${user.email}`);
     } catch (err) {
-      console.error('Error sending password reset:', err);
-      alert('Failed to send password reset email');
+      console.error('Error updating password:', err);
+      alert('Failed to update password: ' + (err instanceof Error ? err.message : 'Unknown error'));
     } finally {
       setActionLoading(prev => ({ ...prev, [actionId]: false }));
     }
@@ -327,9 +337,9 @@ export const UserManagement: React.FC = () => {
                         onClick={() => handleResetPassword(user)}
                         disabled={actionLoading[`reset-${user.id}`]}
                         className="p-2 text-text-quaternary hover:text-devsuite-primary hover:bg-devsuite-primary/10 rounded-md transition-all disabled:opacity-50"
-                        title="Reset password"
+                        title="Change password"
                       >
-                        <Mail className="w-4 h-4" />
+                        <Lock className="w-4 h-4" />
                       </button>
                       {user.role !== 'super_admin' && (
                         <button
